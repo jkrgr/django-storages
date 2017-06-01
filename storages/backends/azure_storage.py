@@ -9,6 +9,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
 
+
 try:
     import azure  # noqa
 except ImportError:
@@ -17,12 +18,12 @@ except ImportError:
         "See https://github.com/WindowsAzure/azure-sdk-for-python")
 
 try:
-    # azure-storage 0.20.0
-    from azure.storage.blob.blobservice import BlobService
     from azure.common import AzureMissingResourceHttpError
+    from azure.storage.blob import BlockBlobService, ContentSettings
 except ImportError:
     from azure.storage import BlobService
     from azure import WindowsAzureMissingResourceError as AzureMissingResourceHttpError
+
 
 from storages.utils import setting
 
@@ -45,7 +46,7 @@ class AzureStorage(Storage):
     @property
     def connection(self):
         if self._connection is None:
-            self._connection = BlobService(
+            self._connection = BlockBlobService(
                 self.account_name, self.account_key)
         return self._connection
 
@@ -65,8 +66,11 @@ class AzureStorage(Storage):
             return None
 
     def _open(self, name, mode="rb"):
-        contents = self.connection.get_blob(self.azure_container, name)
-        return ContentFile(contents)
+        contents = self.connection.get_blob_to_bytes(self.azure_container, name)
+        if hasattr(contents, 'content'):
+            return ContentFile(contents.content)
+        else:
+            return ContentFile(contents)
 
     def exists(self, name):
         return self.__get_blob_properties(name) is not None
@@ -93,9 +97,8 @@ class AzureStorage(Storage):
         else:
             content_data = content.read()
 
-        self.connection.put_blob(self.azure_container, name,
-                                 content_data, "BlockBlob",
-                                 x_ms_blob_content_type=content_type)
+        self.connection.create_blob_from_bytes(self.azure_container, name, content_data,
+                                               content_settings=ContentSettings(content_type=content_type))
         return name
 
     def url(self, name):
